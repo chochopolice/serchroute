@@ -36,23 +36,22 @@
             z-index: 1000;
         }
 
-        #container {
-            position: relative;
-            width: 100%;
-            height: 600px; /* 全体の高さを調整 */
-        }
+#container {
+    display: flex;
+    flex-direction: column; /* 上下に並べる */
+    height: 1200px;
+    gap: 20px; /* ★ ここで上下の余白を作る（調整可能） */
+}
 
-        #map { /* マップ画面の割合 */
-            width: 100%; /* 画面を左右に分割 */
-            height: 60%;
-            float: left;
-        }
+#map {
+    flex: 1; /* 上のエリア */
+    width: 100%;
+}
 
-        #street-view { /* ストリートビュー画面の割合 */
-            width: 100%; /* 画面を左右に分割 */
-            height: 60%;
-            float: left;
-        }
+#street-view {
+    flex: 1; /* 下のエリア */
+    width: 100%;
+}
 
     </style>
 </head>
