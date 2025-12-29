@@ -1,7 +1,10 @@
+let geocoder; // 住所化に使用
 let map, panorama;
 let marker = null;
-let startLocation = null;
-let endLocation = null;
+let startLocation = null; // 起点地
+let waypoints = []; // 経由地リスト（Directions用）
+let waypointMarkers = [];  
+let endLocation = null; // 終点地
 let directionsService, directionsRenderer;
 let moveInterval = null;
 let currentIndex = 0;
@@ -22,6 +25,84 @@ let route = []; // 経路の座標リスト
                 zoom: 16
             });
 
+
+function renderWaypoints() {
+  const el = document.getElementById("waypoints-view");
+  if (!el) return;
+
+  if (waypoints.length === 0) {
+    el.innerHTML = "なし";
+    return;
+  }
+
+  el.innerHTML = waypoints
+    .map((w, i) => `経由地${i + 1}: ${w.location.lat().toFixed(6)}, ${w.location.lng().toFixed(6)}`)
+    .join("<br>");
+}
+
+function addWaypointMarker(latLng) {
+  const m = new google.maps.Marker({
+    position: latLng,
+    map,
+    label: `${waypointMarkers.length + 1}`, // 1,2,3... と番号
+  });
+  waypointMarkers.push(m);
+}
+
+document.getElementById("add-waypoint").addEventListener("click", () => {
+  if (!marker || !marker.getPosition()) {
+    alert("地点を検索またはマップ上で指定してください。");
+    return;
+  }
+  const p = marker.getPosition();
+
+  waypoints.push({ location: p, stopover: true });
+  refreshWaypointMarkers();   // ここで番号も正しくなる
+  updateRouteInfo();
+
+  if (startLocation && endLocation) calculateRoute();
+});
+
+document.getElementById("clear-waypoints").addEventListener("click", () => {
+  waypoints = [];
+  refreshWaypointMarkers();
+  updateRouteInfo();
+
+  if (startLocation && endLocation) calculateRoute();
+});
+
+
+function updateRouteInfo() {
+  // 起点
+  document.getElementById("start-view").textContent =
+    startLocation ? `${startLocation.lat().toFixed(6)}, ${startLocation.lng().toFixed(6)}` : "未設定";
+
+  // 終点
+  document.getElementById("end-view").textContent =
+    endLocation ? `${endLocation.lat().toFixed(6)}, ${endLocation.lng().toFixed(6)}` : "未設定";
+
+  // 経由地（複数）
+  const wpList = document.getElementById("waypoints-view");
+  wpList.innerHTML = ""; // 一旦クリア
+
+  if (!waypoints || waypoints.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = "なし";
+    wpList.appendChild(li);
+    return;
+  }
+
+  waypoints.forEach((w, i) => {
+    const li = document.createElement("li");
+    li.textContent = `${w.location.lat().toFixed(6)}, ${w.location.lng().toFixed(6)}`;
+    wpList.appendChild(li);
+  });
+}
+
+
+// 初期表示
+renderWaypoints();
+
     // ストリートビューの初期設定
             panorama = new google.maps.StreetViewPanorama(
                 document.getElementById("street-view"),
@@ -36,7 +117,7 @@ let route = []; // 経路の座標リスト
     directionsService = new google.maps.DirectionsService();
     directionsRenderer = new google.maps.DirectionsRenderer();
     directionsRenderer.setMap(map);
-
+    geocoder = new google.maps.Geocoder();
 
     map.setStreetView(panorama);
 
@@ -71,6 +152,8 @@ let route = []; // 経路の座標リスト
         map.setCenter(position);
         map.setZoom(16);
         createMarker(position);
+
+
     });
 
     // 起点設定
@@ -79,6 +162,8 @@ let route = []; // 経路の座標リスト
             startLocation = marker.getPosition();
             alert("起点が設定されました。");
             enableRouteSearch();
+            updateRouteInfo();
+
         } else {
             alert("地点を検索またはマップ上で指定してください。");
         }
@@ -89,6 +174,7 @@ let route = []; // 経路の座標リスト
         if (marker && marker.getPosition()) {
             endLocation = marker.getPosition();
             alert("終点が設定されました。");
+            updateRouteInfo();
             enableRouteSearch();
         } else {
             alert("地点を検索またはマップ上で指定してください。");
@@ -98,6 +184,7 @@ let route = []; // 経路の座標リスト
     // 経路検索
     document.getElementById("search-route").addEventListener("click", () => {
         if (startLocation && endLocation) {
+            updateRouteInfo();
             calculateRoute();
         } else {
             alert("起点と終点を設定してください。");
@@ -120,25 +207,29 @@ let route = []; // 経路の座標リスト
 // 起点と終点の入れ替えボタンのイベントリスナーを追加
 document.getElementById("swap-locations").addEventListener("click", () => {
     if (startLocation && endLocation) {
-        // 起点と終点を入れ替える
-        const temp = startLocation;
-        startLocation = endLocation;
-        endLocation = temp;
-        calculateRoute();
+   // 起点終点を入れ替え
+  const tmp = startLocation;
+  startLocation = endLocation;
+  endLocation = tmp;
 
-        // 起点と終点が入れ替わったことをユーザに知らせる
-//        alert("起点と終点を入れ替えました。経路検索ボタンを再度押してください");
+  // ★経由地も逆順にする（復路）
+  waypoints.reverse();
 
+  refreshWaypointMarkers();
+  updateRouteInfo();
 
-    const streetviewpButton = document.getElementById("start-streetview");
-	streetviewpButton.disabled = true;
+  // ルート再計算
+  calculateRoute();
+
+//    const streetviewpButton = document.getElementById("start-streetview");
+//	streetviewpButton.disabled = true;
 
         // 起点・終点の入れ替え後に再描画をトリガー
-        map.setCenter(startLocation);
-        marker.setPosition(startLocation);
+//        map.setCenter(startLocation);
+//        marker.setPosition(startLocation);
 
         // 経路検索ボタンの状態を更新
-        enableRouteSearch();
+//        enableRouteSearch();
 
     } else {
         alert("起点または終点が設定されていません。");
@@ -172,6 +263,9 @@ function calculateRoute() {
         {
             origin: startLocation,
             destination: endLocation,
+            waypoints: waypoints,              // ★追加
+            optimizeWaypoints: false,          // ★順番どおりに進みたいなら false
+
 	    //travelMode: google.maps.TravelMode.WALKING, // 移動手段：徒歩
             travelMode: google.maps.TravelMode.DRIVING, // 移動手段：車
         },
@@ -185,7 +279,163 @@ function calculateRoute() {
             }
         }
     );
+  updateRouteInfo();
 }
+
+
+function reverseGeocodeLatLng(latLng) {
+  return new Promise((resolve) => {
+    if (!geocoder) return resolve(null);
+
+    geocoder.geocode({ location: latLng }, (results, status) => {
+      if (status !== "OK" || !results || results.length === 0) return resolve(null);
+
+      // 一番上が「それっぽい」ことが多い。より短い名前が欲しければ調整可能
+      resolve(results[0].formatted_address);
+    });
+  });
+}
+
+
+
+function addWaypointMarker(latLng) {
+  const m = new google.maps.Marker({
+    position: latLng,
+    map,
+    label: `${waypointMarkers.length + 1}`,
+  });
+  waypointMarkers.push(m);
+}
+
+function refreshWaypointMarkers() {
+  // いったん消して作り直すのが確実
+  waypointMarkers.forEach(m => m.setMap(null));
+  waypointMarkers = [];
+
+  waypoints.forEach((w, i) => {
+    const m = new google.maps.Marker({
+      position: w.location,
+      map,
+      label: `${i + 1}`,
+    });
+    waypointMarkers.push(m);
+  });
+}
+
+
+
+async function updateRouteInfo() {
+  // 起点/終点
+  const startEl = document.getElementById("start-view");
+  const endEl = document.getElementById("end-view");
+
+  if (startEl) startEl.textContent = startLocation ? "取得中…" : "未設定";
+  if (endEl) endEl.textContent = endLocation ? "取得中…" : "未設定";
+
+  if (startLocation && startEl) {
+    const addr = await reverseGeocodeLatLng(startLocation);
+    startEl.textContent = addr || `${startLocation.lat().toFixed(6)}, ${startLocation.lng().toFixed(6)}`;
+  }
+  if (endLocation && endEl) {
+    const addr = await reverseGeocodeLatLng(endLocation);
+    endEl.textContent = addr || `${endLocation.lat().toFixed(6)}, ${endLocation.lng().toFixed(6)}`;
+  }
+
+  // 経由地リスト
+  const listEl = document.getElementById("waypoints-view");
+  const emptyEl = document.getElementById("waypoints-empty");
+  if (!listEl) return;
+
+  listEl.innerHTML = "";
+  const hasWp = waypoints && waypoints.length > 0;
+  if (emptyEl) emptyEl.style.display = hasWp ? "none" : "block";
+  if (!hasWp) return;
+
+  // 住所を順に取得して表示
+  for (let i = 0; i < waypoints.length; i++) {
+    const w = waypoints[i];
+    const addr = await reverseGeocodeLatLng(w.location);
+    const label = addr || `${w.location.lat().toFixed(6)}, ${w.location.lng().toFixed(6)}`;
+
+    const li = document.createElement("li");
+    li.style.display = "flex";
+    li.style.alignItems = "center";
+    li.style.gap = "8px";
+    li.style.marginBottom = "6px";
+
+    const text = document.createElement("div");
+    text.style.flex = "1";
+    text.innerHTML = `<strong>${i + 1}.</strong> ${label}`;
+
+    const btnUp = document.createElement("button");
+    btnUp.textContent = "↑";
+    btnUp.disabled = (i === 0);
+    btnUp.addEventListener("click", () => {
+      moveWaypoint(i, i - 1);
+    });
+
+    const btnDown = document.createElement("button");
+    btnDown.textContent = "↓";
+    btnDown.disabled = (i === waypoints.length - 1);
+    btnDown.addEventListener("click", () => {
+      moveWaypoint(i, i + 1);
+    });
+
+    const btnDel = document.createElement("button");
+    btnDel.textContent = "×";
+    btnDel.title = "削除";
+    btnDel.addEventListener("click", () => {
+      deleteWaypoint(i);
+    });
+
+    li.appendChild(text);
+    li.appendChild(btnUp);
+    li.appendChild(btnDown);
+    li.appendChild(btnDel);
+    listEl.appendChild(li);
+  }
+}
+
+function deleteWaypoint(index) {
+  if (index < 0 || index >= waypoints.length) return;
+
+  waypoints.splice(index, 1);
+  refreshWaypointMarkers();
+  updateRouteInfo();
+
+  // 起点終点が決まっていればルート再計算
+  if (startLocation && endLocation) calculateRoute();
+}
+
+function moveWaypoint(from, to) {
+  if (to < 0 || to >= waypoints.length) return;
+
+  const [item] = waypoints.splice(from, 1);
+  waypoints.splice(to, 0, item);
+
+  refreshWaypointMarkers();
+  updateRouteInfo();
+
+  if (startLocation && endLocation) calculateRoute();
+}
+
+
+function setPovTowardNextPoint(currentPos, nextPos) {
+  if (!currentPos || !nextPos) return;
+  if (!google.maps.geometry || !google.maps.geometry.spherical) return;
+
+  // current -> next の方角（度）を計算
+  const heading = google.maps.geometry.spherical.computeHeading(currentPos, nextPos);
+
+  // pitch/zoom は今の見た目を維持
+  const pov = panorama.getPov() || { heading: 0, pitch: 0 };
+  panorama.setPov({
+    heading: heading,
+    pitch: pov.pitch ?? 0,
+  });
+}
+
+
 
 function extractRouteCoordinates(response) {
     const points = [];
@@ -228,20 +478,27 @@ function extractRouteCoordinates(response) {
 }
 
 function startStreetView() {
-    currentIndex = 0;
+  currentIndex = 0;
+  if (moveInterval) clearInterval(moveInterval);
 
-    moveInterval = setInterval(() => {
-        if (currentIndex < route.length) {
-            const position = route[currentIndex];
-            panorama.setPosition(position);
-            map.setCenter(position);
-            currentIndex++;
-        } else {
-            clearInterval(moveInterval);
-            alert("到着しました！");
-        }
-    }, 2000); // 2秒ごとに進行
+  moveInterval = setInterval(() => {
+    if (currentIndex < route.length) {
+      const position = route[currentIndex];
+      panorama.setPosition(position);
+      map.setCenter(position);
+
+      // ★次の点があるなら、進行方向へ向ける
+      const nextPos = (currentIndex + 1 < route.length) ? route[currentIndex + 1] : null;
+      setPovTowardNextPoint(position, nextPos);
+
+      currentIndex++;
+    } else {
+      clearInterval(moveInterval);
+      alert("到着しました！");
+    }
+  }, 3000);
 }
+
 
 
 // マップを初期化
